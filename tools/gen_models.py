@@ -51,7 +51,7 @@ rsparse={}
 for r in rd('itemsparse'): rsparse[I(r['ID'])]=(r['Display_lang'],I(r['OverallQualityID']))
 print('loaded',len(where),len(rcre),len(ritem))
 # ---------- ids (variables in the SQL)
-BASE=dict(CMD=46000,CDI=1210000,IDI=1210000,CRE=1210000,ITEM=1210000)
+BASE=dict(CMD=46000,CDI=1210000,IDI=1210000,CRE=1210000,ITEM=1210000,OUT=1220000,ODI=1220000,SET=4000)
 cat=json.load(open(H+'catalog2.json'))
 cmd_by_path={}
 for k,v in cmd_path.items(): cmd_by_path.setdefault(v,k)
@@ -205,21 +205,21 @@ for r in cat:
         add_item(nm,cm[0],cm[1],inv,did,q,I(it['Material']) if 0<=I(it['Material'])<=8 else 0,I(it['SheatheType']) if 0<=I(it['SheatheType'])<=7 else 0,'Cosmetic look.')
         n['items']+=1; done=True; break
     if not done: skipped['item: no complete retail look']+=1
-# ---------- outfits from city guards
-def tuples(path, want):
-    # rows of an INSERT dump whose first value is in want
+# ---------- outfits: what NPCs wear, as cosmetic item sets (city guards, then every elite, rare and boss)
+def tuples(path, want=None):
     rx=re.compile(r"^\((\d+),")
     for line in open(path,encoding='utf8',errors='replace'):
         m=rx.match(line)
-        if m and int(m.group(1)) in want:
-            body=line.strip().rstrip(',;')[1:-1]
-            yield next(csv.reader([body],quotechar="'",escapechar='\\'))
+        if m and (want is None or int(m.group(1)) in want):
+            yield next(csv.reader([line.strip().rstrip(',;')[1:-1]],quotechar="'",escapechar='\\'))
 GUARDS=[68,1976,1756,5595,727,4262,16733,3296,14304,5624,3084,16222]
-gname={int(t[0]):t[6] for t in tuples(CORE+'creature_template.sql',set(GUARDS))}
+gname={}; grank={}
+for t in tuples(CORE+'creature_template.sql'):
+    gname[int(t[0])]=t[6]; grank[int(t[0])]=int(t[20])
 gmodels=collections.defaultdict(list)
-for t in tuples(CORE+'creature_template_model.sql',set(GUARDS)): gmodels[int(t[0])].append(int(t[2]))
+for t in tuples(CORE+'creature_template_model.sql'): gmodels[int(t[0])].append(int(t[2]))
 gequip=collections.defaultdict(list)
-for t in tuples(CORE+'creature_equip_template.sql',set(GUARDS)):
+for t in tuples(CORE+'creature_equip_template.sql'):
     if int(t[1])==1: gequip[int(t[0])]+= [int(x) for x in t[2:5] if int(x)]
 wanted_items={i for v in gequip.values() for i in v}
 stock={}
@@ -228,6 +228,7 @@ for t in tuples(CORE+'item_template.sql',wanted_items):
 CB=cdi.byid(); XB=cdx.byid(); IB=idi.byid()
 SLOTS=[(1,'Helm'),(3,'Shoulders'),(4,'Shirt'),(5,'Tunic'),(6,'Belt'),(7,'Leggings'),(8,'Boots'),(9,'Bracers'),(10,'Gloves'),(19,'Tabard'),(16,'Cloak')]
 WEAPON={0:'Axe',1:'Greataxe',2:'Bow',3:'Gun',4:'Mace',5:'Maul',6:'Polearm',7:'Sword',8:'Greatsword',10:'Staff',13:'Fist Weapon',15:'Dagger',16:'Throwing Weapon',17:'Spear',18:'Crossbow',19:'Wand'}
+IDI_FMT='issssssiiiiiiiissssssssii'
 def armor_sub(d,inv):
     if inv in (4,19): return 0
     if inv==16: return 1
@@ -236,32 +237,58 @@ def armor_sub(d,inv):
         if word in names: return sub
     return 1
 box_disp=next((i for i,r in IB.items() if r[5] and idi.str(r[5]).lower()=='inv_box_01'),None) or next(i for i,r in IB.items() if r[5] and idi.str(r[5]).lower().startswith('inv_misc_bag'))
-outfits=[]
-for g in GUARDS:
-    seen=set()
-    sets={tuple(XB[CB[d][3]][8:19]) for d in gmodels.get(g,[]) if d in CB and CB[d][3] in XB and any(XB[CB[d][3]][8:19])}
-    for disp in gmodels.get(g,[]):
-        ext=CB.get(disp,(0,0,0,0))[3]
+iconed={}
+def with_icon(d,inv):
+    """The display itself if it has an icon; else a copy of it with the slot's plain icon."""
+    if IB[d][5] and idi.str(IB[d][5]): return d
+    if d in iconed: return iconed[d]
+    row=[ (idi.str(v) if f=='s' and v else ('' if f=='s' else v)) for v,f in zip(IB[d],IDI_FMT)]
+    f=FALLBACK_ICON.get(inv,'INV_Misc_QuestionMark'); row[5]=f if f.lower() in icons else 'INV_Misc_QuestionMark'
+    row[0]=('ODI',len(out['odi'])); out['odi'].append(row); iconed[d]=row[0]; return row[0]
+out['odi']=[]; out['oitem']=[]; out['oitemdbc']=[]; out['set']=[]; out['oloot']=[]
+def add_oitem(name,cls,sub,inv,disp,material,desc,flags=0):
+    iid=('OUT',len(out['oitem']))
+    out['oitem'].append(dict(id=iid,cls=cls,sub=sub,name=name,disp=disp,q=2,inv=inv,mat=material,sheath=0,desc=desc,flags=flags,set=0))
+    out['oitemdbc'].append([iid,cls,sub,-1,material,disp,inv,0])
+    return iid
+outfit_of={}   # item tuple -> creature that names it
+order_=GUARDS+sorted((e for e in gname if grank.get(e,0)>=1 and e not in GUARDS), key=lambda e:(-grank[e],e))
+for e in order_:
+    for d in gmodels.get(e,[]):
+        ext=CB.get(d,(0,0,0,0))[3]
         if not ext or ext not in XB: continue
         items=tuple(XB[ext][8:19])
-        if items in seen or not any(items): continue
-        seen.add(items)
-        who=gname.get(g,'Guard'); sex=' (female)' if XB[ext][2]==1 and len(sets)>1 else ''
-        pieces=[]
-        for (inv,word),d in zip(SLOTS,items):
-            if not d or d not in IB: continue
-            inv2=20 if inv==5 and IB[d][9] else inv
-            pieces.append(add_item(f"{who}'s {word}{sex}",4,armor_sub(d,inv2),inv2,d,2,0,0,'Cosmetic look.'))
-        for it in gequip.get(g,[]) if not (sex and len(sets)>1) else []:
+        if sum(1 for i,v in enumerate(items) if v and i not in (2,9))<4 and e not in GUARDS: continue
+        if not any(items) or items in outfit_of: continue
+        outfit_of[items]=(e,XB[ext][2])
+count_by_name=collections.Counter()
+outfits=[]
+for items,(e,sex) in outfit_of.items():
+    who0=gname.get(e,'Stranger').strip() or 'Stranger'
+    who=who0+"'" if who0.endswith('s') else who0+"'s"
+    count_by_name[who0]+=1
+    tag='' if count_by_name[who0]==1 else ' '+['','','II','III','IV','V','VI','VII','VIII','IX','X'][min(count_by_name[who0],10)]
+    pieces=[]
+    for (inv,word),d in zip(SLOTS,items):
+        if not d or d not in IB: continue
+        inv2=20 if inv==5 and IB[d][9] else inv
+        pieces.append(add_oitem(f"{who} {word}{tag}",4,armor_sub(d,inv2),inv2,with_icon(d,inv2),0,'Cosmetic look.'))
+    if count_by_name[who0]==1:
+        for it in gequip.get(e,[]):
             st=stock.get(it)
-            if not st or st['cls'] not in (2,4): continue
-            word=WEAPON.get(st['sub'],'Shield' if st['cls']==4 else 'Weapon') if st['cls']==2 else 'Shield'
-            pieces.append(add_item(f"{who}'s {word}",st['cls'],st['sub'],st['inv'],st['disp'],2,0,0,'Cosmetic look.'))
-        boxn=f"{who}'s Outfit{sex}"
-        box=add_item(boxn,15,0,0,box_disp,2,0,0,'Open it for the whole look.',flags=4)
-        for pc in pieces: out['loot'].append([box,pc])
-        outfits.append((boxn,len(pieces))); n['guard pieces']+=len(pieces)
-print(n, dict(skipped)); print('outfits',outfits)
+            if not st or st['cls'] not in (2,4) or not st['disp']: continue
+            word=WEAPON.get(st['sub'],'Weapon') if st['cls']==2 else 'Shield'
+            pieces.append(add_oitem(f"{who} {word}",st['cls'],st['sub'],st['inv'],st['disp'],0,'Cosmetic look.'))
+    if len(pieces)<2: continue
+    sid=('SET',len(out['set']))
+    setname=f"{who} Outfit{tag}"
+    out['set'].append([sid,setname]+[pc for pc in pieces[:17]])
+    for pc in pieces: out['oitem'][pc[1]]['set']=sid
+    box=add_oitem(setname,15,0,0,box_disp,0,'Open it for the whole look.',flags=4)
+    for pc in pieces: out['oloot'].append([box,pc])
+    outfits.append(setname); n['outfit pieces']+=len(pieces)
+n['outfits']=len(outfits)
+print(n, dict(skipped)); print('outfits',len(outfits),outfits[:12])
 if os.environ.get('SAMPLE'):
     import random; random.seed(3)
     for x in random.sample(out['idi'],6): print('IDI',x)
@@ -283,14 +310,17 @@ def block(table,cols,rows,per=500):
         o.append('INSERT INTO `%s` (%s) VALUES\n%s;\n'%(table,', '.join('`%s`'%c for c in cols),
                  ',\n'.join('('+', '.join(sq(v) for v in r)+')' for r in rows[i:i+per])))
     return ''.join(o)
-SZ=dict(CMD=2999,CDI=9999,IDI=9999,CRE=9999,ITEM=9999)
+SZ=dict(CMD=2999,CDI=9999,IDI=9999,CRE=9999,ITEM=9999,OUT=39999,ODI=39999,SET=2999)
 head=['-- mod-temucraft-models: generated by tools/gen_models.py, do not edit by hand.',
       '-- Display rows, showcase creatures and fully cosmetic items for models that ship in the Temucraft client patches',
       '-- but had no display row, plus cosmetic outfits from city guards. Ids are the variables below; every block deletes its',
       '-- own range first, so the file can be run again. The client needs the same rows (client/DBFilesClient).',
       'SET @CMD  := %d; -- CreatureModelData'%BASE['CMD'],'SET @CDI  := %d; -- CreatureDisplayInfo'%BASE['CDI'],
       'SET @IDI  := %d; -- ItemDisplayInfo'%BASE['IDI'],'SET @CRE  := %d; -- creature_template'%BASE['CRE'],
-      'SET @ITEM := %d; -- item_template, Item.dbc'%BASE['ITEM'],'']
+      'SET @ITEM := %d; -- item_template, Item.dbc (looks from the free models)'%BASE['ITEM'],
+      'SET @OUT  := %d; -- item_template, Item.dbc (NPC outfits)'%BASE['OUT'],
+      'SET @ODI  := %d; -- ItemDisplayInfo (NPC looks given an icon)'%BASE['ODI'],
+      'SET @SET  := %d; -- ItemSet (one per outfit)'%BASE['SET'],'']
 sql=['\n'.join(head)]
 def dele(t,c,v): sql.append('DELETE FROM `%s` WHERE `%s` BETWEEN @%s AND @%s+%d;\n'%(t,c,v,v,SZ[v]))
 dele('creaturemodeldata_dbc','ID','CMD')
@@ -305,12 +335,23 @@ sql.append(block('creature_template',['entry','name','subname','minlevel','maxle
 sql.append(block('creature_template_model',['CreatureID','Idx','CreatureDisplayID','DisplayScale','Probability'],[[c[0],0,c[1],1.0,1.0] for c in out['ctm']]))
 dele('itemdisplayinfo_dbc','ID','IDI')
 sql.append(block('itemdisplayinfo_dbc',['ID','ModelName_1','ModelName_2','ModelTexture_1','ModelTexture_2','InventoryIcon_1','InventoryIcon_2','GeosetGroup_1','GeosetGroup_2','GeosetGroup_3','Flags','SpellVisualID','GroupSoundIndex','HelmetGeosetVis_1','HelmetGeosetVis_2','Texture_1','Texture_2','Texture_3','Texture_4','Texture_5','Texture_6','Texture_7','Texture_8','ItemVisual','ParticleColorID'],out['idi']))
-dele('item_loot_template','Entry','ITEM'); dele('item_dbc','ID','ITEM'); dele('item_template','entry','ITEM')
-sql.append(block('item_template',['entry','class','subclass','SoundOverrideSubclass','name','displayid','Quality','Flags','BuyCount','BuyPrice','SellPrice','InventoryType','AllowableClass','AllowableRace','ItemLevel','RequiredLevel','maxcount','stackable','bonding','description','Material','sheath','delay','dmg_min1','dmg_max1','MaxDurability'],
-    [[i['id'],i['cls'],i['sub'],-1,i['name'],i['disp'],i['q'],i['flags'],1,0,0,i['inv'],-1,-1,1,1,0,1,1,i['desc'],i['mat'],i['sheath'],2000 if i['cls']==2 else 0,1 if i['cls']==2 else 0,2 if i['cls']==2 else 0,0] for i in out['item']]))
-sql.append(block('item_dbc',['ID','ClassID','SubclassID','Sound_Override_Subclassid','Material','DisplayInfoID','InventoryType','SheatheType'],out['itemdbc']))
+dele('itemdisplayinfo_dbc','ID','ODI')
+sql.append(block('itemdisplayinfo_dbc',['ID','ModelName_1','ModelName_2','ModelTexture_1','ModelTexture_2','InventoryIcon_1','InventoryIcon_2','GeosetGroup_1','GeosetGroup_2','GeosetGroup_3','Flags','SpellVisualID','GroupSoundIndex','HelmetGeosetVis_1','HelmetGeosetVis_2','Texture_1','Texture_2','Texture_3','Texture_4','Texture_5','Texture_6','Texture_7','Texture_8','ItemVisual','ParticleColorID'],out['odi']))
+for v in ('ITEM','OUT'):
+    dele('item_loot_template','Entry',v); dele('item_dbc','ID',v); dele('item_template','entry',v)
+ICOLS=['entry','class','subclass','SoundOverrideSubclass','name','displayid','Quality','Flags','BuyCount','BuyPrice','SellPrice','InventoryType','AllowableClass','AllowableRace','ItemLevel','RequiredLevel','maxcount','stackable','bonding','description','Material','sheath','delay','dmg_min1','dmg_max1','MaxDurability','itemset']
+def irow(i): return [i['id'],i['cls'],i['sub'],-1,i['name'],i['disp'],i['q'],i['flags'],1,0,0,i['inv'],-1,-1,1,1,0,1,1,i['desc'],i['mat'],i['sheath'],2000 if i['cls']==2 else 0,1 if i['cls']==2 else 0,2 if i['cls']==2 else 0,0,i.get('set',0)]
+sql.append(block('item_template',ICOLS,[irow(i) for i in out['item']+out['oitem']]))
+sql.append(block('item_dbc',['ID','ClassID','SubclassID','Sound_Override_Subclassid','Material','DisplayInfoID','InventoryType','SheatheType'],out['itemdbc']+out['oitemdbc']))
 sql.append(block('item_loot_template',['Entry','Item','Reference','Chance','QuestRequired','LootMode','GroupId','MinCount','MaxCount','Comment'],
-    [[b,pc,0,100.0,0,1,0,1,1,'outfit piece'] for b,pc in out['loot']]))
+    [[b,pc,0,100.0,0,1,0,1,1,'outfit piece'] for b,pc in out['loot']+out['oloot']]))
+dele('itemset_dbc','ID','SET')
+LOCS=['enUS','enGB','koKR','frFR','deDE','enCN','zhCN','enTW','zhTW','esES','esMX','ruRU','ptPT','ptBR','itIT','Unk']
+def setrow(r):
+    ids=list(r[2:])+[0]*(17-len(r[2:]))
+    return [r[0]]+[r[1]]*16+[16712190]+ids+[0]*18
+sets_sql=[setrow(r) for r in out['set']]
+sql.append(block('itemset_dbc',['ID']+['Name_Lang_'+l for l in LOCS]+['Name_Lang_Mask']+['ItemID_%d'%i for i in range(1,18)]+['SetSpellID_%d'%i for i in range(1,9)]+['SetThreshold_%d'%i for i in range(1,9)]+['RequiredSkill','RequiredSkillRank'],sets_sql))
 if not os.environ.get('DRY'):
     os.makedirs(MOD+'data/sql/db-world/base',exist_ok=True)
     open(MOD+'data/sql/db-world/base/temucraft_models.sql','w',encoding='utf8').write('\n'.join(sql))
@@ -335,7 +376,8 @@ if not os.environ.get('DRY'):
     C=MOD+'client/DBFilesClient/'
     write_dbc(D+'CreatureModelData.dbc',C+'CreatureModelData.dbc',out['cmd'],'iisifiiiffiiiiffffffffffffff')
     write_dbc(D+'CreatureDisplayInfo.dbc',C+'CreatureDisplayInfo.dbc',out['cdi'],'iiiifissssiiiiii')
-    write_dbc(D+'ItemDisplayInfo.dbc',C+'ItemDisplayInfo.dbc',out['idi'],'issssssiiiiiiiissssssssii')
-    write_dbc(D+'Item.dbc',C+'Item.dbc',out['itemdbc'],'iiiiiiii')
+    write_dbc(D+'ItemDisplayInfo.dbc',C+'ItemDisplayInfo.dbc',out['idi']+out['odi'],'issssssiiiiiiiissssssssii')
+    write_dbc(D+'Item.dbc',C+'Item.dbc',out['itemdbc']+out['oitemdbc'],'iiiiiiii')
+    write_dbc(D+'ItemSet.dbc',C+'ItemSet.dbc',sets_sql,'i'+'s'*16+'i'*36)
     json.dump({k:[[list(x) if isinstance(x,tuple) else x for x in (r if isinstance(r,list) else [r])] for r in v] for k,v in out.items()},open(H+'rows.json','w'))
 print('rows',{k:len(v) for k,v in out.items()})

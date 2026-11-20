@@ -10,13 +10,14 @@ Looks that were already in the Temucraft client but that nothing used, made usab
 - **1,865 fully cosmetic items** (`item_template` from 1210000): weapons, shields, helms, shoulders, belts and armour
   pieces made from the free item models and armour textures, each with its own ItemDisplayInfo row (from 1210000).
   Item level 1, no stats, no armour, bind on pickup, no durability: for transmog and for looks.
-- **City guard outfits**: every piece the guard wears (helm, shoulders, shirt, chest, belt, legs, boots, bracers,
-  gloves, tabard, cloak) and its weapons as cosmetic items, plus an outfit box that gives the whole set:
-  Stormwind City Guard, Stormwind City Patroller, Stormwind Royal Guard, Ironforge Guard, Ironforge Mountaineer,
-  Darnassus Sentinel, Exodar Peacekeeper (male and female), Orgrimmar Grunt, Kor'kron Elite and Bluffwatcher. These use
-  the guards' own item looks, so they need no new display rows. (Undercity and Silvermoon guards have no separate item
-  looks in their displays.)
-
+- **2,221 NPC outfits as cosmetic item sets**: what NPCs wear (helm, shoulders, shirt, chest, belt, legs, boots,
+  bracers, gloves, tabard, cloak) and their weapons, as fully cosmetic items (`item_template` from 1220000), grouped into a
+  real item set each (ItemSet from 4000: the tooltip shows "Stormwind City Guard's Outfit" and its pieces, with no
+  bonuses), plus an outfit box that gives the whole set. First the city guards (Stormwind, Ironforge, Darnassus, Exodar,
+  Orgrimmar, Kor'kron, Thunder Bluff), then every elite, rare and boss that wears at least four armour pieces. Outfits
+  that are exactly the same are made once, named after the first NPC found (bosses first); a second different outfit of
+  the same NPC gets "II". The pieces use the NPCs' own item looks; 5,100 of those looks had no icon, so they get a copy
+  with the slot's plain icon (ItemDisplayInfo from 1220000). Undercity and Silvermoon guards have no separate item looks.
 Names come from the item or creature that uses the same model in the current game, so they can be looked up on Wowhead.
 
 ## Install
@@ -24,7 +25,7 @@ Names come from the item or creature that uses the same model in the current gam
 1. Put the folder in `modules/`, re-run CMake and build (the module is SQL only). The worldserver applies
    `data/sql/db-world/base/temucraft_models.sql` on its next start. The file deletes its own ranges first, so it can run again.
 2. **The client needs the same rows.** `client/DBFilesClient/` holds CreatureModelData, CreatureDisplayInfo,
-   ItemDisplayInfo and Item.dbc: the client's current tables (patch-T) with these rows added. Put them into the client
+   ItemDisplayInfo, Item.dbc and ItemSet.dbc: the client's current tables (patch-T) with these rows added. Put them into the client
    patch that carries those tables (patch-T, or merge them into patch-5), and copy them to the server's `dbc` folder too.
    Without them the client shows nothing, or a question mark, for these creatures and items.
 
@@ -36,7 +37,10 @@ Names come from the item or creature that uses the same model in the current gam
 | CreatureDisplayInfo, `creature_model_info` | 1210000-1219999 |
 | `creature_template`, `creature_template_model` | 1210000-1219999 |
 | ItemDisplayInfo | 1210000-1219999 |
-| `item_template`, Item.dbc, outfit `item_loot_template` | 1210000-1219999 |
+| `item_template`, Item.dbc (free models) | 1210000-1219999 |
+| `item_template`, Item.dbc, `item_loot_template` (outfits) | 1220000-1259999 |
+| ItemDisplayInfo (outfit pieces given an icon) | 1220000-1259999 |
+| ItemSet | 4000-6999 |
 
 The ranges are SQL variables at the top of the file.
 
@@ -54,4 +58,4 @@ The ranges are SQL variables at the top of the file.
 writes the SQL and the client tables. They need the MPQ listings, the client's DBCs from patch-T, the community
 listfile and the current-game tables (CreatureModelData, CreatureDisplayInfo, Creature, ItemDisplayInfo,
 ItemAppearance, ItemModifiedAppearance, Item, ItemSparse, ModelFileData, TextureFileData,
-ItemDisplayInfoMaterialRes as CSV). The guard list is `GUARDS` in `gen_models.py`.
+ItemDisplayInfoMaterialRes as CSV). The guard list is `GUARDS` in `gen_models.py`; other NPCs are every creature with rank 1 or higher.
