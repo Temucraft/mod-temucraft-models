@@ -25,9 +25,10 @@ Names come from the item or creature that uses the same model in the current gam
 1. Put the folder in `modules/`, re-run CMake and build (the module is SQL only). The worldserver applies
    `data/sql/db-world/base/temucraft_models.sql` on its next start. The file deletes its own ranges first, so it can run again.
 2. **The client needs the same rows.** `client/DBFilesClient/` holds CreatureModelData, CreatureDisplayInfo,
-   ItemDisplayInfo, Item.dbc and ItemSet.dbc: the client's current tables (patch-T) with these rows added. Put them into the client
-   patch that carries those tables (patch-T, or merge them into patch-5), and copy them to the server's `dbc` folder too.
-   Without them the client shows nothing, or a question mark, for these creatures and items.
+   ItemDisplayInfo, Item.dbc and ItemSet.dbc: the client's current tables (patch-T) with these rows added. They ship as
+   `5) Release/patches/patch-W.MPQ`, which loads after patch-T. If patch-T's copies of these five tables change later,
+   run `tools/gen_models.py` again so patch-W starts from the new ones. The server needs no DBC files: it reads the same
+   rows from the `*_dbc` tables in the SQL.
 
 ## Ids
 
