@@ -60,3 +60,7 @@ writes the SQL and the client tables. They need the MPQ listings, the client's D
 listfile and the current-game tables (CreatureModelData, CreatureDisplayInfo, Creature, ItemDisplayInfo,
 ItemAppearance, ItemModifiedAppearance, Item, ItemSparse, ModelFileData, TextureFileData,
 ItemDisplayInfoMaterialRes as CSV). The guard list is `GUARDS` in `gen_models.py`; other NPCs are every creature with rank 1 or higher.
+
+The SQL is kept small by `tools/sqlpack.py` (rows grouped by the columns that are at their default, which are left
+out; `@VAR+number` columns written as numbers through a temporary table; no spaces). The table defaults it needs are
+in `tools/sql_defaults.json`, taken from the core's schema: refresh it if the core changes a default.
