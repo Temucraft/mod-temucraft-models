@@ -377,7 +377,9 @@ if not os.environ.get('DRY'):
     write_dbc(D+'CreatureModelData.dbc',C+'CreatureModelData.dbc',out['cmd'],'iisifiiiffiiiiffffffffffffff')
     write_dbc(D+'CreatureDisplayInfo.dbc',C+'CreatureDisplayInfo.dbc',out['cdi'],'iiiifissssiiiiii')
     write_dbc(D+'ItemDisplayInfo.dbc',C+'ItemDisplayInfo.dbc',out['idi']+out['odi'],'issssssiiiiiiiissssssssii')
-    write_dbc(D+'Item.dbc',C+'Item.dbc',out['itemdbc']+out['oitemdbc'],'iiiiiiii')
+    # Item.dbc rows of other modules that ship in patch-W (client/keep_item_rows.tsv): kept, so a rebuild doesn't drop them
+    keep=[[int(x) for x in l.split('\t')[:8]] for l in open(MOD+'client/keep_item_rows.tsv') if l.strip() and not l.startswith('#')]
+    write_dbc(D+'Item.dbc',C+'Item.dbc',out['itemdbc']+out['oitemdbc']+keep,'iiiiiiii')
     write_dbc(D+'ItemSet.dbc',C+'ItemSet.dbc',sets_sql,'i'+'s'*16+'i'*36)
     json.dump({k:[[list(x) if isinstance(x,tuple) else x for x in (r if isinstance(r,list) else [r])] for r in v] for k,v in out.items()},open(H+'rows.json','w'))
 print('rows',{k:len(v) for k,v in out.items()})

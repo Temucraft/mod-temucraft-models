@@ -29,6 +29,10 @@ Names come from the item or creature that uses the same model in the current gam
    `5) Release/patches/patch-W.MPQ`, which loads after patch-T. If patch-T's copies of these five tables change later,
    run `tools/gen_models.py` again so patch-W starts from the new ones. The server needs no DBC files: it reads the same
    rows from the `*_dbc` tables in the SQL.
+   patch-W is also the last patch with `Item.dbc`, so other modules' item rows that are not in patch-T ride along in
+   it (first mount 602120-602189, professions 608100-608783, shop 610200-610211). They are listed in
+   `client/keep_item_rows.tsv`, and `tools/gen_models.py` adds them again on every rebuild. A module that adds
+   Item.dbc rows to patch-W by hand: add them to that file too.
 
 ## Ids
 
