@@ -379,7 +379,9 @@ if not os.environ.get('DRY'):
     write_dbc(D+'ItemDisplayInfo.dbc',C+'ItemDisplayInfo.dbc',out['idi']+out['odi'],'issssssiiiiiiiissssssssii')
     # Item.dbc rows of other modules that ship in patch-W (client/keep_item_rows.tsv): kept, so a rebuild doesn't drop them
     keep=[[int(x) for x in l.split('\t')[:8]] for l in open(MOD+'client/keep_item_rows.tsv') if l.strip() and not l.startswith('#')]
-    write_dbc(D+'Item.dbc',C+'Item.dbc',out['itemdbc']+out['oitemdbc']+keep,'iiiiiiii')
+    # one row per id, the last one wins: keep_item_rows.tsv also holds corrections taken from the server's item_template
+    itemrows={int(r[0]):r for r in out['itemdbc']+out['oitemdbc']+keep}
+    write_dbc(D+'Item.dbc',C+'Item.dbc',[itemrows[k] for k in sorted(itemrows)],'iiiiiiii')
     write_dbc(D+'ItemSet.dbc',C+'ItemSet.dbc',sets_sql,'i'+'s'*16+'i'*36)
     json.dump({k:[[list(x) if isinstance(x,tuple) else x for x in (r if isinstance(r,list) else [r])] for r in v] for k,v in out.items()},open(H+'rows.json','w'))
 print('rows',{k:len(v) for k,v in out.items()})
